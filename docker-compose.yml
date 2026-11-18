@@ -1,0 +1,21 @@
+# O banco é o PostgreSQL do próprio notebook (fora do Docker).
+# A sub-rede abaixo está liberada no pg_hba.conf (172.21.0.0/16).
+services:
+  app:
+    build: .
+    container_name: arvorebiblia
+    env_file: .env
+    environment:
+      DB_HOST: host.docker.internal
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    ports:
+      - "${APP_PORT:-8090}:8090"
+    restart: unless-stopped
+    networks: [arvore]
+
+networks:
+  arvore:
+    ipam:
+      config:
+        - subnet: 172.21.0.0/16

@@ -1,0 +1,59 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Árvore Bíblica</title>
+  <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+  <header>
+    <h1>Árvore Genealógica Bíblica</h1>
+    <div class="ferramentas">
+      <input id="busca" list="lista-nomes" placeholder="Buscar personagem…" autocomplete="off">
+      <datalist id="lista-nomes"></datalist>
+      <label class="escala">Escala do tempo
+        <input id="escala" type="range" min="0.5" max="8" step="0.25" value="3">
+        <span id="escala-valor"></span>
+      </label>
+      <label class="escala">Destacar <select id="destacar"><option value="">—</option></select></label>
+      <label class="check"><input id="mostrar-anos" type="checkbox" checked> Anos dos cards</label>
+      <label class="check"><input id="mostrar-eventos" type="checkbox" checked> Marcos</label>
+      <button id="btn-ajustar" title="Voltar ao início (Adão)">⌂ Início</button>
+      <button id="btn-nova" class="primario">+ Nova pessoa</button>
+    </div>
+  </header>
+
+  <main>
+    <svg id="tela" xmlns="http://www.w3.org/2000/svg">
+      <defs>
+        <filter id="sombra" x="-10%" y="-10%" width="120%" height="140%">
+          <feDropShadow dx="0" dy="1" stdDeviation="1.2" flood-opacity=".18"/>
+        </filter>
+      </defs>
+      <g id="mundo">
+        <g id="camada-grade"></g>
+        <g id="camada-linhas"></g>
+        <g id="camada-cards"></g>
+      </g>
+      <g id="regua"></g>
+    </svg>
+    <div id="legenda">
+      <span><i class="sw m"></i> Homem</span>
+      <span><i class="sw f"></i> Mulher</span>
+      <span><i class="sw sn"></i> Mulher sem nome</span>
+      <span><i class="sw snh"></i> Homem sem nome</span>
+      <span>(† 969) anos vividos</span>
+      <span><i class="traco"></i> pai segundo outra fonte (ex.: Lucas)</span>
+      <span>~ ano aproximado</span>
+      <span class="dica">Arraste para mover · roda do mouse para zoom</span>
+    </div>
+    <aside id="painel" hidden>
+      <button id="fechar-painel" title="Fechar">×</button>
+      <div id="painel-conteudo"></div>
+    </aside>
+  </main>
+
+  <script src="/static/app.js"></script>
+</body>
+</html>
