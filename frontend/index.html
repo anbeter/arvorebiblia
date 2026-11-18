@@ -10,20 +10,28 @@
   <header>
     <h1>Árvore Genealógica Bíblica</h1>
     <div class="ferramentas">
+      <label class="escala">Visualização <select id="modo"></select></label>
       <input id="busca" list="lista-nomes" placeholder="Buscar personagem…" autocomplete="off">
       <datalist id="lista-nomes"></datalist>
-      <label class="escala">Escala do tempo
+      <span class="so-impressao">
+        <label class="escala" title="Gerações abaixo da raiz (0 = todas)">Gerações <input id="geracoes" type="number" min="0" max="99" style="width:56px"></label>
+      </span>
+      <span class="so-geracao"><button id="btn-enquadrar" title="Ajustar o zoom para caber tudo">⤢ Enquadrar</button></span>
+      <button id="btn-imprimir" title="Imprimir a visualização atual numa página">🖶 Imprimir</button>
+      <button id="btn-svg" class="so-geracao" title="Baixar como SVG (vetorial)">⭳ SVG</button>
+      <label class="escala so-linha">Escala do tempo
         <input id="escala" type="range" min="0.5" max="8" step="0.25" value="3">
         <span id="escala-valor"></span>
       </label>
       <label class="escala">Destacar <select id="destacar"><option value="">—</option></select></label>
-      <label class="check"><input id="mostrar-anos" type="checkbox" checked> Anos dos cards</label>
-      <label class="check"><input id="mostrar-eventos" type="checkbox" checked> Marcos</label>
+      <label class="check so-linha"><input id="mostrar-anos" type="checkbox" checked> Anos dos cards</label>
+      <label class="check so-linha"><input id="mostrar-eventos" type="checkbox" checked> Marcos</label>
       <button id="btn-ajustar" title="Voltar ao início (Adão)">⌂ Início</button>
       <button id="btn-nova" class="primario">+ Nova pessoa</button>
     </div>
   </header>
 
+  <h1 id="titulo-impressao"></h1>
   <main>
     <svg id="tela" xmlns="http://www.w3.org/2000/svg">
       <defs>

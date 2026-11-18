@@ -8,6 +8,9 @@
 
 const SVGNS = "http://www.w3.org/2000/svg";
 const CARD_W = 156, CARD_H = 44, COL = CARD_W + 22, FOLGA_Y = 5, TOPO = 60, MARGEM_X = 300;
+// visualizações por geração ("familia" e "impressao"): uma linha por geração, ano acima do card
+const LINHA_GER = CARD_H + 46;
+const MODOS = { linha: "Linha do tempo", familia: "Família (1 acima, 5 abaixo)", impressao: "Impressão" };
 
 // Marcos da linha do tempo. {am}: anos desde a criação (segue a data-base do banco);
 // {ano}: ano civil fixo (negativo = a.C.), usado a partir da monarquia.
@@ -21,6 +24,7 @@ const MARCOS = [
 
 const estado = {
   pessoas: new Map(), casamentos: [], filiacoes: [], reinados: [], papeis: [], livros: [], anoCriacao: -4026,
+  modo: "linha", foco: null, geracoesImpressao: 4,
   escala: 3, tx: 0, ty: 0, k: 1, pos: new Map(), selecionado: null,
 };
 
@@ -112,22 +116,64 @@ function anosEfetivos() {
   return { ano, estimado };
 }
 
-function conjugesPorPessoa() {
+function conjugesPorPessoa(P = estado.pessoas) {
   const m = new Map();
   for (const c of estado.casamentos) {
-    if (!estado.pessoas.has(c.marido_id) || !estado.pessoas.has(c.esposa_id)) continue;
+    if (!P.has(c.marido_id) || !P.has(c.esposa_id)) continue;
     (m.get(c.marido_id) || m.set(c.marido_id, []).get(c.marido_id)).push(c.esposa_id);
     (m.get(c.esposa_id) || m.set(c.esposa_id, []).get(c.esposa_id)).push(c.marido_id);
   }
   return m;
 }
 
-function calcularLayout() {
-  const P = estado.pessoas;
-  const { ano, estimado } = anosEfetivos();
+const filhosDe = (id) => [...estado.pessoas.values()].filter((f) => f.pai_id === id || f.mae_id === id);
+
+/** Família: pais (nível 0), a pessoa e os irmãos (1), e 5 gerações abaixo: filhos (2) … tetranetos (6), com cônjuges */
+function niveisFamilia(id) {
+  const P = estado.pessoas, p = P.get(id), niv = new Map();
+  if (!p) return niv;
   const conj = conjugesPorPessoa();
+  const por = (x, n) => { if (x != null && P.has(x) && !niv.has(x)) niv.set(x, n); };
+  for (const pai of [p.pai_id, p.mae_id]) por(pai, 0);
+  por(id, 1);
+  for (const pai of [p.pai_id, p.mae_id]) if (pai) for (const f of filhosDe(pai)) por(f.id, 1);
+  let atual = [id];
+  for (const c of conj.get(id) || []) por(c, 1);
+  for (let n = 2; n <= 6; n++) {
+    const prox = [];
+    for (const a of atual) for (const f of filhosDe(a)) if (!niv.has(f.id)) { por(f.id, n); prox.push(f.id); }
+    for (const f of prox) for (const c of conj.get(f) || []) por(c, n);
+    atual = prox;
+  }
+  return niv;
+}
+
+/** Impressão: a raiz e seus descendentes até "gerações" abaixo (0 = todas), com cônjuges */
+function niveisImpressao(id, geracoes) {
+  const P = estado.pessoas, niv = new Map();
+  if (!P.has(id)) return niv;
+  const conj = conjugesPorPessoa();
+  niv.set(id, 0);
+  for (const c of conj.get(id) || []) if (!niv.has(c)) niv.set(c, 0);
+  let atual = [id, ...(conj.get(id) || [])];
+  for (let n = 1; !geracoes || n <= geracoes; n++) {
+    const prox = [];
+    for (const a of atual) for (const f of filhosDe(a)) if (!niv.has(f.id)) { niv.set(f.id, n); prox.push(f.id); }
+    if (!prox.length) break;
+    for (const f of prox) for (const c of conj.get(f) || []) if (!niv.has(c)) { niv.set(c, n); prox.push(c); }
+    atual = prox;
+  }
+  return niv;
+}
+
+/** opts.niveis (Map id -> geração): mostra só essas pessoas, uma linha por geração */
+function calcularLayout(opts = null) {
+  const P = opts ? new Map([...estado.pessoas].filter(([id]) => opts.niveis.has(id))) : estado.pessoas;
+  const { ano, estimado } = anosEfetivos();
+  const conj = conjugesPorPessoa(P);
   const tMin = Math.min(...ano.values(), continuo(estado.anoCriacao));
-  const y = (id) => TOPO + (ano.get(id) - tMin) * estado.escala;
+  const niveis = opts ? new Map(opts.niveis) : null;
+  const y = niveis ? (id) => TOPO + niveis.get(id) * LINHA_GER : (id) => TOPO + (ano.get(id) - tMin) * estado.escala;
 
   const primario = (p) => (p.pai_id && P.has(p.pai_id) ? p.pai_id : p.mae_id && P.has(p.mae_id) ? p.mae_id : null);
   const filhosEmComum = (a, b) => [...P.values()].filter((f) =>
@@ -155,6 +201,11 @@ function calcularLayout() {
   }
   const anexos = new Map();
   for (const [id, alvo] of anexadoA) (anexos.get(alvo) || anexos.set(alvo, []).get(alvo)).push(id);
+  if (niveis) for (const id of anexadoA.keys()) {
+    let cab = id;
+    while (anexadoA.has(cab)) cab = anexadoA.get(cab);
+    niveis.set(id, niveis.get(cab));
+  }
   const membros = (id) => {   // grupo: a pessoa + quem está anexado a ela (recursivo), ordenado por ano
     const out = [id];
     const extras = (anexos.get(id) || []).slice().sort((a, b) => ano.get(a) - ano.get(b));
@@ -282,14 +333,23 @@ function calcularLayout() {
   const minCol = Math.min(...colGlobal.values());
   const pos = new Map();
   for (const [id, col] of colGlobal) pos.set(id, { x: MARGEM_X + (col - minCol) * COL, y: y(id) });
-  return { pos, tMin, tMax: Math.max(...ano.values()), estimado };
+  return { pos, tMin, tMax: Math.max(...ano.values()), estimado, niveis };
 }
 
 // ---------------------------------------------------------------- desenho
 let layout = null;
 
+const porGeracao = () => estado.modo !== "linha";
+
+function opcoesDoModo() {
+  if (estado.modo === "familia") return { niveis: niveisFamilia(estado.foco) };
+  if (estado.modo === "impressao") return { niveis: niveisImpressao(estado.foco, estado.geracoesImpressao) };
+  return null;
+}
+
 function desenhar() {
-  layout = calcularLayout();
+  layout = calcularLayout(opcoesDoModo());
+  document.body.dataset.modo = estado.modo;
   estado.pos = layout.pos;
   desenharGrade();
   desenharLinhas();
@@ -304,6 +364,7 @@ const yDoAno = (t) => TOPO + (t - layout.tMin) * estado.escala;
 function desenharGrade() {
   const g = $("#camada-grade");
   g.innerHTML = "";
+  if (porGeracao()) return;
   const xs = [...layout.pos.values()].map((p) => p.x);
   const x1 = Math.max(...xs, 0) + CARD_W + 400;
   const grade = el("g", { class: "grade" }, g);
@@ -358,6 +419,7 @@ function desenharLinhas() {
   }
   for (const p of estado.pessoas.values()) {
     const filho = pos.get(p.id);
+    if (!filho) continue;
     for (const [pid, tipo] of [[p.pai_id, "pai"], [p.mae_id, "mae"]]) {
       const pp = pid && pos.get(pid);
       if (!pp) continue;
@@ -381,6 +443,7 @@ function desenharCards() {
   const g = $("#camada-cards");
   g.innerHTML = "";
   for (const p of estado.pessoas.values()) {
+    if (!layout.pos.has(p.id)) continue;
     const { x, y } = layout.pos.get(p.id);
     const c = el("g", { class: `card ${p.sexo}${p.sem_nome ? " sem-nome" : ""}`, transform: `translate(${x},${y})`, "data-id": p.id }, g);
     el("rect", { class: "corpo", width: CARD_W, height: CARD_H, rx: 8 }, c);
@@ -391,6 +454,10 @@ function desenharCards() {
     if (temIdade) {
       const idade = el("text", { class: "idade", x: CARD_W / 2, y: 35, "text-anchor": "middle" }, c);
       idade.textContent = `(\u2020 ${p.idade_morte})`;
+    }
+    if (porGeracao()) {
+      const a = el("text", { class: "ano-acima", x: CARD_W / 2, y: -6, "text-anchor": "middle" }, c);
+      a.textContent = p.ano_nascimento == null ? "?" : fmtAno(p.ano_nascimento, p.nascimento_aprox);
     }
     const tip = el("title", {}, c);
     const anos = p.ano_nascimento == null ? "ano desconhecido" : fmtIntervalo(p);
@@ -405,6 +472,16 @@ function desenharRegua() {
   el("rect", { class: "fundo", x: 0, y: 0, width: 88, height: alt }, g);
   el("line", { x1: 88, x2: 88, y1: 0, y2: alt }, g);
   if (!layout) return;
+  if (porGeracao()) {
+    const nomes = estado.modo === "familia" ? ["Pais", "Pessoa", "Filhos", "Netos", "Bisnetos", "Trinetos", "Tetranetos"] : null;
+    const usados = [...new Set(layout.niveis.values())].sort((a, b) => a - b);
+    for (const n of usados) {
+      const sy = (TOPO + n * LINHA_GER + CARD_H / 2) * estado.k + estado.ty;
+      const tx = el("text", { x: 80, y: sy + 4, "text-anchor": "end", class: "rotulo-geracao" }, g);
+      tx.textContent = nomes ? nomes[n] ?? `Geração ${n}` : n === 0 ? "Raiz" : `${n}ª geração`;
+    }
+    return;
+  }
   // passo adaptado ao zoom, para manter ~60px entre marcas
   const pxAno = estado.escala * estado.k;
   const passo = [10, 25, 50, 100, 250, 500, 1000].find((s) => s * pxAno >= 60) || 1000;
@@ -440,15 +517,16 @@ function destacar(id) {
       if (f.pai_id === id) rel.add(f.filho_id);
     }
   }
+  const esmaecer = !!p && !porGeracao();   // nas visualizações por geração tudo o que aparece já é parente
   document.querySelectorAll(".card").forEach((c) => {
     const cid = +c.dataset.id;
     c.classList.toggle("selecionado", cid === id);
-    c.classList.toggle("esmaecido", p && !rel.has(cid));
+    c.classList.toggle("esmaecido", esmaecer && !rel.has(cid));
   });
   document.querySelectorAll(".lig, .rotulo-alt").forEach((l) => {
     const toca = +l.dataset.a === id || +l.dataset.b === id;
     l.classList.toggle("destaque", !!p && toca);
-    l.classList.toggle("esmaecido", !!p && !toca);
+    l.classList.toggle("esmaecido", esmaecer && !toca);
   });
 }
 
@@ -543,6 +621,11 @@ function fecharPainel() { $("#painel").hidden = true; }
 function linkPessoa(p) { return `<a class="pessoa ${p.sexo}" data-ir="${p.id}">${esc(p.nome)}</a>`; }
 
 async function abrirPessoa(id, { centralizar: centra = false } = {}) {
+  if (porGeracao() && estado.foco !== id) {
+    estado.foco = id;
+    desenhar();
+    centra = true;
+  }
   destacar(id);
   $("#painel").hidden = false;
   if (centra) centralizar(id);
@@ -826,10 +909,71 @@ function atualizarRotuloEscala() {
   $("#escala-valor").textContent = `${estado.escala} px/ano`;
 }
 
-function irParaInicio() {
-  const adao = [...estado.pessoas.values()].find((p) => p.pai_id == null && p.mae_id == null && p.sexo === "M" &&
+function adao() {
+  return [...estado.pessoas.values()].find((p) => p.pai_id == null && p.mae_id == null && p.sexo === "M" &&
     p.ano_nascimento === estado.anoCriacao) || [...estado.pessoas.values()][0];
-  if (adao) centralizar(adao.id, 1);
+}
+
+function irParaInicio() {
+  const a = adao();
+  if (!a) return;
+  if (porGeracao()) { estado.foco = a.id; desenhar(); enquadrar(); return; }
+  centralizar(a.id, 1);
+}
+
+/** ajusta o zoom para caber todo o conteúdo visível na tela */
+function enquadrar() {
+  const caixa = $("#mundo").getBBox();
+  if (!caixa.width) return;
+  const tela = $("#tela"), larg = tela.clientWidth - 100 - ($("#painel").hidden ? 0 : $("#painel").clientWidth), alt = tela.clientHeight - 40;
+  estado.k = Math.max(0.08, Math.min(1.2, larg / caixa.width, alt / caixa.height));
+  estado.tx = 95 + (larg - caixa.width * estado.k) / 2 - caixa.x * estado.k;
+  estado.ty = 20 - caixa.y * estado.k;
+  aplicarTransform();
+}
+
+function trocarModo(modo) {
+  estado.modo = MODOS[modo] ? modo : "linha";
+  gravarPref("modo", estado.modo);
+  $("#modo").value = estado.modo;
+  if (porGeracao() && !estado.pessoas.has(estado.foco)) estado.foco = estado.selecionado ?? adao()?.id;
+  desenhar();
+  if (porGeracao()) enquadrar();
+  else if (estado.selecionado) centralizar(estado.selecionado);
+  else irParaInicio();
+}
+
+/** imprime a visualização atual inteira, encaixada numa página em paisagem */
+function imprimir() {
+  const tela = $("#tela"), mundo = $("#mundo");
+  const caixa = mundo.getBBox(), m = 20;
+  const transf = mundo.getAttribute("transform");
+  mundo.removeAttribute("transform");
+  tela.setAttribute("viewBox", `${caixa.x - m} ${caixa.y - 30} ${caixa.width + 2 * m} ${caixa.height + 30 + m}`);
+  tela.setAttribute("preserveAspectRatio", "xMidYMin meet");   // encosta no topo da página
+  const foco = estado.pessoas.get(estado.foco);
+  $("#titulo-impressao").textContent = estado.modo === "linha" ? "Árvore Genealógica Bíblica"
+    : `Árvore Genealógica Bíblica — ${foco ? foco.nome : ""}${estado.modo === "impressao" ? ` (${estado.geracoesImpressao ? estado.geracoesImpressao + " gerações" : "todas as gerações"})` : ""}`;
+  const restaura = () => { tela.removeAttribute("viewBox"); tela.removeAttribute("preserveAspectRatio"); mundo.setAttribute("transform", transf); window.removeEventListener("afterprint", restaura); };
+  window.addEventListener("afterprint", restaura);
+  window.print();
+}
+
+/** baixa a visualização atual como SVG (vetorial, para imprimir em tamanho grande) */
+async function baixarSVG() {
+  const mundo = $("#mundo"), caixa = mundo.getBBox(), m = 20;
+  const css = await (await fetch("/static/style.css")).text();
+  const clone = mundo.cloneNode(true);
+  clone.removeAttribute("transform");
+  const svg = `<svg xmlns="${SVGNS}" viewBox="${caixa.x - m} ${caixa.y - 30} ${caixa.width + 2 * m} ${caixa.height + 30 + m}" width="${Math.round(caixa.width + 2 * m)}" height="${Math.round(caixa.height + 30 + m)}">
+<style>${css.replace(/@media \(prefers[\s\S]*$/, "")}
+svg { background: #fff; font-family: system-ui, "Segoe UI", Roboto, sans-serif; }</style>
+${$("#tela defs").outerHTML}${clone.outerHTML}</svg>`;
+  const foco = estado.pessoas.get(estado.foco);
+  const nome = (porGeracao() && foco ? `arvore-${foco.nome}` : "arvore-biblica").normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[^\w]+/g, "-").toLowerCase();
+  const a = Object.assign(document.createElement("a"), { href: URL.createObjectURL(new Blob([svg], { type: "image/svg+xml" })), download: `${nome}.svg` });
+  a.click();
+  setTimeout(() => URL.revokeObjectURL(a.href), 1000);
 }
 
 async function iniciar() {
@@ -839,6 +983,13 @@ async function iniciar() {
   $("#btn-nova").onclick = () => formularioPessoa(null);
   $("#btn-ajustar").onclick = irParaInicio;
   $("#mostrar-eventos").onchange = desenhar;
+  $("#modo").innerHTML = Object.entries(MODOS).map(([k, v]) => `<option value="${k}">${v}</option>`).join("");
+  $("#modo").onchange = (e) => trocarModo(e.target.value);
+  $("#geracoes").value = estado.geracoesImpressao;
+  $("#geracoes").onchange = (e) => { estado.geracoesImpressao = Math.max(0, +e.target.value || 0); desenhar(); enquadrar(); };
+  $("#btn-imprimir").onclick = imprimir;
+  $("#btn-svg").onclick = baixarSVG;
+  $("#btn-enquadrar").onclick = enquadrar;
   $("#destacar").onchange = (e) => { gravarPref("destacar", e.target.value); aplicarFiltroDestaque(); };
   try { const v = localStorage.getItem("mostrarAnos"); if (v != null) $("#mostrar-anos").checked = v === "1"; } catch {}
   $("#mostrar-anos").onchange = (e) => {
@@ -861,8 +1012,11 @@ async function iniciar() {
       || [...estado.pessoas.values()].find((x) => x.nome.toLowerCase().includes(nome));
     if (p) abrirPessoa(p.id, { centralizar: true });
   });
+  estado.modo = MODOS[lerPref("modo", "linha")] ? lerPref("modo", "linha") : "linha";
+  $("#modo").value = estado.modo;
   await carregar();
-  irParaInicio();
+  if (porGeracao()) trocarModo(estado.modo);
+  else irParaInicio();
 }
 
 iniciar().catch((e) => { document.body.insertAdjacentHTML("beforeend", `<p class="erro" style="position:fixed;top:60px;left:20px">${esc(e.message)}</p>`); });

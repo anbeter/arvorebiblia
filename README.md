@@ -92,6 +92,16 @@ Para mudar a data-base, altere `ANO_CRIACAO` no `.env` e rode o seed com `--forc
 
 ## Uso
 
+### Visualizações (seletor “Visualização” no topo)
+
+- **Linha do tempo**: a árvore inteira; a altura do card é o ano de nascimento.
+- **Família (1 acima, 5 abaixo)**: centrada na pessoa selecionada, com uma linha por geração:
+  pais, a pessoa (com irmãos e cônjuges), filhos, netos, bisnetos, trinetos e tetranetos. O ano de nascimento aparece
+  acima de cada card. Clicar em outro card muda o foco.
+- **Impressão**: a pessoa selecionada como raiz e seus descendentes, até o número de gerações
+  escolhido (0 = todas); os irmãos ficam na mesma linha. **Imprimir** encaixa tudo numa página em
+  paisagem; **SVG** baixa um arquivo vetorial, para imprimir em tamanho grande.
+
 - Arrastar move a árvore; a roda do mouse dá zoom; o controle **Escala do tempo** estica ou
   comprime o eixo vertical (px por ano).
 - Clique num card para ver detalhes, referências (abrem no BibleGateway, versão ARC), história e
